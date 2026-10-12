@@ -1,35 +1,65 @@
 from flask import Flask, request, jsonify
-import subprocess, tempfile, os, requests
+import subprocess, tempfile, os, requests, traceback
 
 app = Flask(__name__)
-
 AUDD_TOKEN = os.environ.get("AUDD_TOKEN", "")
 
 @app.route("/")
 def home():
-    return {"status": "ok", "service": "music-identify"}
+    return {"status": "ok", "service": "music-identify", "ffmpeg": _has_ffmpeg(), "token": bool(AUDD_TOKEN)}
+
+def _has_ffmpeg():
+    try:
+        r = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 @app.route("/identify", methods=["POST"])
 def identify():
+    try:
+        return _identify_impl()
+    except Exception as e:
+        return jsonify({
+            "ok": False,
+            "error": "unhandled",
+            "message": str(e),
+            "trace": traceback.format_exc()[:800]
+        }), 500
+
+def _identify_impl():
     data = request.get_json(silent=True) or {}
     stream = data.get("stream", "")
-    if not stream.startswith("http"):
-        return jsonify({"ok": False, "error": "bad_stream"}), 400
+    if not stream or not isinstance(stream, str) or not stream.startswith("http"):
+        return jsonify({"ok": False, "error": "bad_stream", "message": "آدرس استریم نامعتبر"}), 400
+
+    if not AUDD_TOKEN:
+        return jsonify({"ok": False, "error": "no_token", "message": "توکن AudD تنظیم نشده"}), 500
+
+    if not _has_ffmpeg():
+        return jsonify({"ok": False, "error": "no_ffmpeg", "message": "ffmpeg روی سرور نصب نیست"}), 500
 
     tmp = tempfile.mktemp(suffix=".mp3")
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["ffmpeg", "-hide_banner", "-loglevel", "error", "-y",
              "-i", stream, "-t", "8", "-ac", "1", "-ar", "16000",
              "-b:a", "48k", tmp],
-            timeout=25, check=True
+            timeout=25, capture_output=True
         )
+        if result.returncode != 0:
+            err = (result.stderr or b"").decode("utf-8", errors="replace")[:300]
+            return jsonify({"ok": False, "error": "capture_failed", "message": err or "ffmpeg خطا داد"}), 500
+    except subprocess.TimeoutExpired:
+        return jsonify({"ok": False, "error": "capture_timeout", "message": "زمان ضبط تمام شد"}), 500
     except Exception as e:
-        return jsonify({"ok": False, "error": "capture_failed", "message": str(e)}), 500
+        return jsonify({"ok": False, "error": "capture_error", "message": str(e)}), 500
+    finally:
+        pass
 
     if not os.path.exists(tmp) or os.path.getsize(tmp) < 2000:
-        os.unlink(tmp)
-        return jsonify({"ok": False, "error": "capture_empty"}), 500
+        if os.path.exists(tmp): os.unlink(tmp)
+        return jsonify({"ok": False, "error": "capture_empty", "message": "فایل ضبط‌شده خالی است"}), 500
 
     try:
         with open(tmp, "rb") as f:
@@ -39,14 +69,21 @@ def identify():
                 files={"file": f},
                 timeout=30
             )
-        result = r.json()
+        result_json = r.json()
+    except Exception as e:
+        return jsonify({"ok": False, "error": "audd_error", "message": str(e)}), 500
     finally:
-        os.unlink(tmp)
+        if os.path.exists(tmp): os.unlink(tmp)
 
-    if result.get("status") != "success" or not result.get("result"):
-        return jsonify({"ok": False, "error": "not_found"}), 404
+    if result_json.get("status") != "success":
+        err = result_json.get("error", {})
+        err_msg = err.get("error_message", "خطای AudD") if isinstance(err, dict) else str(err)
+        return jsonify({"ok": False, "error": "audd_bad", "message": err_msg}), 500
 
-    r = result["result"]
+    if not result_json.get("result"):
+        return jsonify({"ok": False, "error": "not_found", "message": "آهنگ شناسایی نشد"}), 404
+
+    r = result_json["result"]
     title = r.get("title", "")
     artist = r.get("artist", "")
     album = r.get("album", "")
