@@ -96,8 +96,8 @@ def _identify_via_shazam(audio_path: str) -> dict:
         return {"ok": False, "error": "shazam_missing", "message": "shazamio نصب نیست: " + str(e)}
 
     async def _run():
-        async with Shazam() as shazam:
-            return await shazam.recognize(audio_path)
+        shazam = Shazam()  # ✅ بدون async with
+        return await shazam.recognize(audio_path)
 
     try:
         loop = asyncio.new_event_loop()
@@ -129,12 +129,6 @@ def _identify_via_shazam(audio_path: str) -> dict:
     links = {}
     if track.get("url"):
         links["shazam"] = track["url"]
-
-    # جستجوی Spotify/Apple از طریق متادیتای Shazam
-    for section in track.get("sections", []) or []:
-        for meta in section.get("metadata", []) or []:
-            if meta.get("title") == "Album":
-                pass  # می‌توان آلبوم را اینجا استخراج کرد
 
     # آلبوم
     album = ""
