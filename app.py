@@ -54,8 +54,6 @@ def _identify_impl():
         return jsonify({"ok": False, "error": "capture_timeout", "message": "زمان ضبط تمام شد"}), 500
     except Exception as e:
         return jsonify({"ok": False, "error": "capture_error", "message": str(e)}), 500
-    finally:
-        pass
 
     if not os.path.exists(tmp) or os.path.getsize(tmp) < 2000:
         if os.path.exists(tmp): os.unlink(tmp)
@@ -128,6 +126,8 @@ def _identify_impl():
         except Exception:
             pass
 
+    timecode = r.get("timecode") if isinstance(r.get("timecode"), (int, float)) else None
+
     return jsonify({
         "ok": True,
         "title": title,
@@ -136,7 +136,8 @@ def _identify_impl():
         "cover": cover,
         "links": links,
         "lyrics_plain": r.get("lyrics", ""),
-        "lrc": lrc
+        "lrc": lrc,
+        "timecode": timecode
     })
 
 if __name__ == "__main__":
