@@ -3,7 +3,7 @@ import subprocess, tempfile, os, requests
 
 app = Flask(__name__)
 
-AUDD_TOKEN = os.environ.get("AUDD_TOKEN", "توکن_خودت_اینجا")
+AUDD_TOKEN = os.environ.get("AUDD_TOKEN", "")
 
 @app.route("/")
 def home():
@@ -67,7 +67,6 @@ def identify():
     if r.get("song_link"):
         links["audd"] = r["song_link"]
 
-    # دریافت متن همگام از LRCLIB
     lrc = None
     if artist and title:
         try:
